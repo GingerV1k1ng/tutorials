@@ -1,3 +1,4 @@
+*.db
 .stack-work/
 _cache/
 _site/
