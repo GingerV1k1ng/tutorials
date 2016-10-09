@@ -297,31 +297,127 @@ move on to specializing.
 
 ### Specializing
 
-Tell a bit about how ad-hoc polymorphism works.
+To understand how specializing works (what it is, for that matter), we first
+need to review how ad-hoc polymorphism with type classes is implemented in
+GHC. When there is a constraint in signature of a function:
 
-What the specialize pragma does.
+```haskell
+foo :: Num a => a -> a
+foo = …
+```
 
-* The INLINABLE pragma also works with SPECIALISE: if you mark function f as
-  INLINABLE, then you can subsequently SPECIALISE in another module (see
-  SPECIALIZE pragma).
+it means the function should work differently for different `a` that
+implement the type class (`Num` in our example). This is accomplished by
+passing around a dictionary indexed by methods in given type class, so the
+example above turns into:
 
-Using specialize on imported functions.
+```haskell
+foo :: Num a -> a -> a
+foo d = …
+```
 
-A SPECIALIZE has the effect of generating (a) a specialised version of the
-function and (b) a rewrite rule (see Rewrite rules) that rewrites a call to
-the un-specialised function into a call to the specialised one. Moreover,
-given a SPECIALIZE pragma for a function f, GHC will automatically create
-specialisations for any type-class-overloaded functions called by f, if they
-are in the same module as the SPECIALIZE pragma, or if they are INLINABLE;
-and so on, transitively.
+Note the `d` argument of type `Num a`. This is a dictionary that contains
+functions that implement methods of `Num` type class. When a method of that
+type class needs to be called, the dictionary is indexed by “name” of that
+method and the extracted function is used. Not only `foo` accepts the
+dictionary as an additional argument, it also passes it to polymorphic
+functions inside `foo`, and those functions may pass it to functions in
+their bodies:
 
-A little spoiler about rules perhaps.
+```haskell
+foo :: Num a -> a -> a
+foo d = … bar d …
+  where
+    bar, baz :: Num a -> a -> a
+    bar d = … baz d …
+    baz d = …
+```
 
-Specialize inline (GHC may diverge!).
+It should be obvious by now that all that passing around and indexing is not
+free, it does make your program slower. Think about it: **in every place we
+actually use a polymorphic function, we have concrete types**. It should be
+possible for GHC to figure out which implementation in used in every place
+(we know types at compile time) and speed up things considerably. When we
+turn a polymorphic function into one specialized for concrete type(s), we do
+specializing.
 
-Specialize instance pragma
+You may be wondering now why GHC doesn't do this for us automatically? Well,
+it tries, but there are cases (and we run into them pretty often) when it
+cannot specialize:
+
+* A module exports a polymorphic function. To specialize we need function's
+  body, but in this case we only have compiled version of the function, so
+  we just use it without specializing. The solution is to use `INLINEABLE`
+  on the exported polymorphic function combined with `SPECIALIZE` in the
+  module where we wish to specialize the function (see below).
+
+* Every time we specialize, we create a new function with about the same
+  size of the original (polymorphic) one. This leads to code bloat.
+
+So if you want to specialize, your tool is the `SPECIALIZE` pragma.
+Syntactically, a `SPECIALIZE` pragma can be put anywhere its type signature
+can be put:
+
+```haskell
+foo :: Num a => a -> a
+foo = …
+{-# SPECIALIZE foo :: Int -> Int #-}
+```
+
+The specified type may be any type that is less polymorphic than the type of
+the original function, I like this example from GHC user manual, it states
+that
+
+```haskell
+{-# SPECIALIZE f :: <type> #-}
+```
+
+is valid when
+
+```haskell
+f_spec :: <type>
+f_spec = f
+```
+
+is valid. It makes sense!
+
+The actual effect of the pragma is to generate a specialized version of
+specified function and a rewrite rule (they are described below with more
+details of how `SPECIALIZE` works, in the section about rewrite rules) which
+rewrites calls to the original function to calls to the specialized its
+version whenever types match.
+
+There is a way to specialize all methods in a type class for specific
+instance of that class. It looks like this (example from GHC user guide):
+
+```haskell
+instance (Eq a) => Eq (Foo a) where
+  {-# SPECIALIZE instance Eq (Foo [(Int, Bar)]) #-}
+  … usual stuff …
+```
+
+It's also possible to inline specialized version of a function using the
+`SPECIALIZE INLINE` pragma. It may be surprising, but it will even work with
+self-recursive functions. The motivation here is the fact that a polymorphic
+function, unlike a function that works with concrete types, may actually use
+different instances every time it's called, so inlining specialized versions
+of the function does not necessarily diverges. An obvious consequence of
+this is that GHC can also go into an infinite loop, so be careful.
+`SPECIALIZE NOINLINE` variant is also available.
+
+Finally, it's worth noticing that explicit use of `SPECIASIZE` is not always
+necessary. For instance, it's common for GHC to specialize of its own if
+some function is inilined into non-polymorhpic context. It just inlines it
+and subsequent passes of optimizer remove excessive polymorphism — one more
+example of how simple inlining can trigger a “chain reaction” significantly
+improving performance. As always, to make sure whether something works or
+not, benchmark and profile — that's the only way to find out!
 
 ### Rewrite rules
+
+Haskell, being a pure language, gives GHC the magic ability to perform wide
+range of transformations over Haskell programs. And GHC allows programmer to
+take part in that process. Thank you, GHC!
 
 What rewrite rules are, and why they are possible in Haskell. Show the
 `RULES` pragma, explain what different parts of the rule mean. How the
