@@ -186,7 +186,7 @@ ensure that it terminates.
 This brings us to two edge cases:
 
 * **Self-recursive functions are never inlined.** This should be quite
-  obvious, because if we choose to inline it, we would never finish.
+  obvious, because if we chose to inline it, we would never finish.
 
 * **With mutually recursive definitions**, **GHC selects** one or more
   **loop breakers**. GHC tries not to select a function that would be very
@@ -266,7 +266,7 @@ pragma**, causing putting function's unfolding into interface file
 optimizations** from being applied. We will see how this works with
 specializing in the next section. For that reason it's nothing unusual to
 see `INLINEABLE` used on a self-recursive function, because the intention is
-not to inline the function, but dump its definition into interface file.
+not to inline the function, but to dump its definition into interface file.
 
 A more straightforward approach to control inlining is to use the `INLINE`
 pragma. When GHC calculates weight of a function, this pragma makes the
@@ -292,8 +292,8 @@ myFunction = …
 It's rather rare to see this in source code though. Often times, you will
 want to **prevent inlining until some other optimization happens**. This is
 also done with `NOINLINE`, but to control order in which optimizations are
-applied, we will need to master more black magic than we do now, so let's
-move on to specializing for now.
+applied, we will need to master more black magic than we know now, so let's
+move on to specializing.
 
 ### Specializing
 
